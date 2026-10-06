@@ -56,7 +56,7 @@ struct Options {
     int sym_rows = 1024;           // rows used by the symbolic search
     int sym_top_k = 6;             // symbolic columns offered to the ridge
     int sym_mcts_sims = 24;
-    double sym_time_limit = 5.0;   // seconds
+    double sym_time_limit = 0.0;   // seconds; 0 = generation-bounded (reproducible), >0 = wall-clock cap
     int select_rows = 2048;        // rows used for hyper-parameter selection
     int select_dim = 128;          // cos/sin pairs used only while selecting (strided subset of the full set)
     int solve_rows = -1;           // rows in the final solve: -1 = auto cap (>= 50000 and 20x features), 0 = all
@@ -453,13 +453,15 @@ inline std::vector<Genome> symbolic_search(const Search& s, const Options& o) {
     const int turns = std::clamp(o.sym_turns, 2, kMaxTurns);
     const int P = std::max(8, o.sym_population);
     const Index n = s.X.rows();
-    const int nthreads = max_threads();
+    // Worker count never exceeds the population size, so small populations divide into the
+    // same per-thread batches regardless of the machine's core count (reproducibility).
+    const int nthreads = std::max(1, std::min(max_threads(), P));
     std::vector<MatrixXd> st(nthreads, MatrixXd(n, turns + 1));
     std::vector<VectorXd> pr(nthreads, VectorXd(n));
     const auto t0 = Clock::now();
 
     std::vector<Genome> pop(P);
-    #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(static) num_threads(nthreads)
     for (int i = 0; i < P; ++i) {
         Rng r(mix(o.seed, static_cast<std::uint64_t>(i)));
         pop[i] = random_genome(r, nfeat, turns);
@@ -498,7 +500,7 @@ inline std::vector<Genome> symbolic_search(const Search& s, const Options& o) {
 
         std::vector<Genome> next(P);
         for (int i = 0; i < elites; ++i) next[i] = pop[i];
-        #pragma omp parallel for schedule(static)
+        #pragma omp parallel for schedule(static) num_threads(nthreads)
         for (int i = elites; i < P; ++i) {
             Rng r(mix(o.seed, (static_cast<std::uint64_t>(gen) + 1) * 1000003ULL + i));
             Genome child;
@@ -743,25 +745,67 @@ public:
         return 1.0 - (predictions - y).squaredNorm() / total;
     }
 
-    // Token walk of the best Rubby champion: operators/operands in visit order, plus its scale/offset.
+    // Infix rendering of the best Rubby champion's stack program, e.g.
+    // "0.9228*exp(x0*x1) - 0.0061". Mirrors run_genome's safe-op semantics.
     std::string champion_formula() const {
         if (!has_best_) return "";
-        static const char* names[] = {"c", "x", "+", "-", "*", "/", "log", "exp", "sqrt", "abs", "^2", "^3"};
-        std::ostringstream out;
-        out << best_.a << " * ( ";
+        std::vector<std::string> stack;
+        stack.reserve(best_.path.size() + 1);
         int cell = 0;
         auto emit = [&](int c) {
             const detail::Node& n = best_.cube[c];
-            if (n.op == detail::Op::Const) out << '[' << n.c << "] ";
-            else if (n.op == detail::Op::Var) out << 'x' << n.var << ' ';
-            else out << names[static_cast<int>(n.op)] << ' ';
+            using detail::Op;
+            auto unary = [&](const char* f) {
+                if (stack.empty()) return;
+                stack.back() = std::string(f) + "(" + stack.back() + ")";
+            };
+            switch (n.op) {
+                case Op::Const: {
+                    std::ostringstream cs;
+                    cs << n.c;
+                    stack.push_back(cs.str());
+                    break;
+                }
+                case Op::Var:
+                    stack.push_back("x" + std::to_string(n.var));
+                    break;
+                case Op::Add: case Op::Sub: case Op::Mul: case Op::Div: {
+                    if (stack.size() < 2) break;
+                    const std::string rhs = stack.back();
+                    stack.pop_back();
+                    std::string& lhs = stack.back();
+                    const char sym = n.op == Op::Add ? '+' : n.op == Op::Sub ? '-' : n.op == Op::Mul ? '*' : '/';
+                    // Wrap operands only when precedence or right-associativity requires it.
+                    const auto low_prec = [](const std::string& s) {
+                        return s.find_last_of("+-") != std::string::npos;
+                    };
+                    const bool wrap_l = (n.op == Op::Mul || n.op == Op::Div) && low_prec(lhs);
+                    const bool wrap_r = n.op == Op::Div ||
+                        ((n.op == Op::Sub || n.op == Op::Mul) && low_prec(rhs));
+                    lhs = (wrap_l ? "(" + lhs + ")" : lhs) + sym + (wrap_r ? "(" + rhs + ")" : rhs);
+                    break;
+                }
+                case Op::Log: unary("log"); break;
+                case Op::Exp: unary("exp"); break;
+                case Op::Sqrt: unary("sqrt"); break;
+                case Op::Abs: unary("abs"); break;
+                case Op::Pow2: case Op::Pow3:
+                    if (!stack.empty()) {
+                        const bool wrap = stack.back().find_first_of("+-*/") != std::string::npos;
+                        stack.back() = (wrap ? "(" + stack.back() + ")" : stack.back()) +
+                                       (n.op == Op::Pow2 ? "^2" : "^3");
+                    }
+                    break;
+            }
         };
         emit(cell);
         for (std::uint8_t d : best_.path) {
             cell = detail::step(cell, d);
             emit(cell);
         }
-        out << ") + " << best_.b << "   (postfix)";
+        const std::string body = stack.empty() ? "0" : stack.back();
+        std::ostringstream out;
+        out << best_.a << "*" << body << (best_.b < 0.0 ? " - " : " + ") << std::abs(best_.b);
         return out.str();
     }
     double chosen_bandwidth() const noexcept { return bandwidth_; }
