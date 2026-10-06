@@ -775,11 +775,13 @@ public:
                     stack.pop_back();
                     std::string& lhs = stack.back();
                     const char sym = n.op == Op::Add ? '+' : n.op == Op::Sub ? '-' : n.op == Op::Mul ? '*' : '/';
-                    const bool wrap_l = (n.op == Op::Mul || n.op == Op::Div) &&
-                        (lhs.find_last_of("+-") != std::string::npos);
+                    // Wrap operands only when precedence or right-associativity requires it.
+                    const auto low_prec = [](const std::string& s) {
+                        return s.find_last_of("+-") != std::string::npos;
+                    };
+                    const bool wrap_l = (n.op == Op::Mul || n.op == Op::Div) && low_prec(lhs);
                     const bool wrap_r = n.op == Op::Div ||
-                        (n.op == Op::Sub && rhs.find_last_of("+-") != std::string::npos) ||
-                        (n.op == Op::Mul && rhs.find_last_of("+-") != std::string::npos);
+                        ((n.op == Op::Sub || n.op == Op::Mul) && low_prec(rhs));
                     lhs = (wrap_l ? "(" + lhs + ")" : lhs) + sym + (wrap_r ? "(" + rhs + ")" : rhs);
                     break;
                 }
