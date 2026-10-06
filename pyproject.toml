@@ -3,7 +3,7 @@ requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "blackrubby-regressor"
+name = "blackrubby"
 version = "0.1.0"
 description = "C++ symbolic-plus-kernel regression estimator with a NumPy Python API"
 readme = "README.md"
