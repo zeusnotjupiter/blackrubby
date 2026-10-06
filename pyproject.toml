@@ -1,0 +1,48 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "blackrubby-regressor"
+version = "0.1.0"
+description = "C++ symbolic-plus-kernel regression estimator with a NumPy Python API"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+keywords = ["regression", "symbolic regression", "random Fourier features", "machine learning"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.scikit-build]
+cmake.version = ">=3.18"
+wheel.packages = ["src/blackrubby"]
+sdist.include = [
+  ".gitignore",
+  ".github/workflows/wheels.yml",
+  "CMakeLists.txt",
+  "LICENSE",
+  "README.md",
+  "pyproject.toml",
+  "src/blackrubby/__init__.py",
+  "src/core.cpp",
+  "tests/test_api.py",
+  "vendor/blackrubby.hpp",
+  "vendor/blackrubby_impl.cpp",
+]
+sdist.exclude = ["blackrubby_package", "blackrubby_package/**", "**/blackrubby_package/**", "dist/**", "build/**", "**/__pycache__/**", "**/.pytest_cache/**", "**/*.pyc", "**/*.pyo"]
+build-dir = "build/{wheel_tag}"
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-*"
+skip = "*-win32 *-manylinux_i686 *-musllinux_*"
+test-command = "pytest {project}/tests"

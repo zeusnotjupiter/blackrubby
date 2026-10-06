@@ -1,0 +1,8 @@
+build/
+dist/
+_dist/
+wheelhouse/
+*.egg-info/
+__pycache__/
+*.py[cod]
+blackrubby_package/

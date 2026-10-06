@@ -1,0 +1,46 @@
+cmake_minimum_required(VERSION 3.18)
+project(blackrubby_native LANGUAGES CXX)
+
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(pybind11 CONFIG REQUIRED)
+
+if(DEFINED ENV{EIGEN3_INCLUDE_DIR})
+    find_path(EIGEN3_INCLUDE_DIR Eigen/Dense HINTS "$ENV{EIGEN3_INCLUDE_DIR}" NO_DEFAULT_PATH)
+endif()
+if(NOT EIGEN3_INCLUDE_DIR)
+    find_path(EIGEN3_INCLUDE_DIR Eigen/Dense HINTS "${CMAKE_CURRENT_SOURCE_DIR}/../eigen-3.4.0")
+endif()
+if(NOT EIGEN3_INCLUDE_DIR)
+    include(FetchContent)
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
+    set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(eigen
+        URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_GetProperties(eigen)
+    if(NOT eigen_POPULATED)
+        FetchContent_Populate(eigen)
+    endif()
+    set(EIGEN3_INCLUDE_DIR "${eigen_SOURCE_DIR}")
+endif()
+
+pybind11_add_module(_core MODULE src/core.cpp)
+target_compile_features(_core PRIVATE cxx_std_17)
+target_compile_definitions(_core PRIVATE BLACKRUBBY_NO_MAIN)
+target_include_directories(_core PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vendor")
+target_include_directories(_core SYSTEM PRIVATE "${EIGEN3_INCLUDE_DIR}")
+if(MSVC)
+    target_compile_options(_core PRIVATE /O2 /EHsc)
+else()
+    target_compile_options(_core PRIVATE -O3)
+endif()
+
+find_package(OpenMP QUIET)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(_core PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+install(TARGETS _core DESTINATION blackrubby)
