@@ -1,0 +1,3 @@
+[submodule "vendor/eigen"]
+	path = vendor/eigen
+	url = https://github.com/eigen-mirror/eigen.git

@@ -11,13 +11,18 @@ if(NOT EIGEN3_INCLUDE_DIR)
     find_path(EIGEN3_INCLUDE_DIR Eigen/Dense HINTS "${CMAKE_CURRENT_SOURCE_DIR}/../eigen-3.4.0")
 endif()
 if(NOT EIGEN3_INCLUDE_DIR)
+    find_path(EIGEN3_INCLUDE_DIR Eigen/Dense HINTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/eigen")
+endif()
+if(NOT EIGEN3_INCLUDE_DIR)
+    message(STATUS "Vendored Eigen not found; fetching Eigen 3.4.0 (set EIGEN3_INCLUDE_DIR to skip the download)")
     include(FetchContent)
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
     set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(eigen
-        URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+        URL https://github.com/eigen-mirror/eigen/archive/refs/tags/3.4.0.tar.gz
+        URL_HASH SHA256=8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_GetProperties(eigen)
