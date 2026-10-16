@@ -23,8 +23,8 @@ print("champion:", model.champion_formula_)
 
 ## Install
 
-```bash
-python -m pip install blackrubby-regressor
+```
+pip install blackrubby
 ```
 
 Pre-built wheels are published for CPython 3.10–3.13 on Linux (x86_64), Windows (x64), and macOS (Intel and Apple Silicon). On a supported platform this installs in seconds with no compiler.
