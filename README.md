@@ -144,10 +144,6 @@ python -m pip install -e . --no-build-isolation
 
 Run the tests with `python -m pip install pytest` then `python -m pytest tests`.
 
-## Release and publishing
-
-Wheels for all supported platforms are built by the `wheels.yml` workflow (cibuildwheel) on version tags and can be test-built at any time via manual dispatch. Publishing to PyPI is a separate, explicitly gated step: it requires a PyPI project named `blackrubby-regressor`, this repository configured as a trusted publisher, and a manual workflow dispatch with `publish_to_pypi` enabled. No credentials are stored in the repository.
-
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
