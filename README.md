@@ -27,7 +27,7 @@ print("champion:", model.champion_formula_)
 pip install blackrubby
 ```
 
-Pre-built wheels are published for CPython 3.10–3.13 on Linux (x86_64), Windows (x64), and macOS (Intel and Apple Silicon). On a supported platform this installs in seconds with no compiler.
+Pre-built wheels are published for CPython 3.10–3.15 on Linux (x86_64), Windows (x64), and macOS (Intel and Apple Silicon). On a supported platform this installs in seconds with no compiler.
 
 Building from source requires only a C++17 compiler and CMake. Eigen 3.4.0 is vendored under `vendor/eigen`, so **no network access is needed**; set `EIGEN3_INCLUDE_DIR` to use a different Eigen installation.
 
