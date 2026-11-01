@@ -115,11 +115,15 @@ After fitting, the following attributes are available:
 | `chosen_alpha_` | selected ridge strength α |
 | `uses_symbolic_` | whether the LOO/holdout checks kept the symbolic columns |
 | `symbolic_columns_` | number of symbolic columns in the final model |
-| `champion_formula_` | best expression found, in infix (e.g. `0.9228*exp(x0*x1) - 0.0061`) |
+| `champion_formula_` | best expression found, in infix (e.g. `0.314478*log(exp(x0)^3)*x1 - 0.00452039`) |
+
+The formula string is the champion's raw stack program rendered in infix — it is **not algebraically simplified** (`log(exp(x0)^3)` is not rewritten as `3*x0`), though the fitted scale/offset are folded into the printed `a*expr + b` form.
 
 ## Usage notes
 
-- `X` must be a finite 1D or 2D numeric array; `y` must be one finite numeric target per row. Multi-output regression, categorical encoding, and missing-value imputation are not built in — encode and impute before calling `fit`.
+- Inputs can be NumPy arrays or any array-like — plain Python lists, pandas DataFrames, and pandas Series are accepted and converted automatically. `X` must be finite and 1D or 2D; `y` must be one finite numeric target per row. Multi-output regression, categorical encoding, and missing-value imputation are not built in — encode and impute before calling `fit`.
+- The estimator follows the scikit-learn API: `clone`, `cross_val_score`, `GridSearchCV`, and `Pipeline` all work (scikit-learn itself is optional — the estimator runs fine without it).
+- Fitted models are picklable, so `pickle.dumps(model)` / `joblib.dump` work, including inside `joblib`-parallel searches. A restored model reproduces predictions exactly.
 - Fit on training data only, tune on validation data, and report on an untouched test set. The internal LOO-CV protects hyperparameter selection, but it is not a substitute for a held-out evaluation.
 - For 1D inputs the Fourier projection is a deterministic log-spaced frequency grid up to `max_frequency`, which suits signal-like data; for `d ≥ 2` the projection is a seeded random Gaussian matrix.
 - `score(X, y)` returns the coefficient of determination R² (1.0 is perfect, 0.0 is no better than predicting the mean).

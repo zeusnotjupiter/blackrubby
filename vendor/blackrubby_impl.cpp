@@ -817,6 +817,47 @@ public:
     double select_seconds() const noexcept { return select_seconds_; }
     double solve_seconds() const noexcept { return solve_seconds_; }
 
+    // Plain-data capture of every member predict()/predict_symbolic() touch,
+    // so a restored model reproduces predictions exactly (used for pickling).
+    struct Snapshot {
+        Eigen::RowVectorXd mean, scale;
+        MatrixXd W;
+        std::vector<detail::Genome> champions;
+        VectorXd sym_mean, sym_scale;
+        detail::Genome best;
+        bool has_best = false;
+        VectorXd weights;
+        double intercept = 0.0, bandwidth = 1.0, alpha_abs = 1.0;
+        bool use_sym = false;
+        double symbolic_seconds = 0.0, select_seconds = 0.0, solve_seconds = 0.0;
+    };
+
+    Snapshot snapshot() const {
+        if (!fitted_) throw std::logic_error("fit must be called before snapshot.");
+        return Snapshot{mean_, scale_, W_, champions_, sym_mean_, sym_scale_, best_,
+                        has_best_, weights_, intercept_, bandwidth_, alpha_abs_, use_sym_,
+                        symbolic_seconds_, select_seconds_, solve_seconds_};
+    }
+
+    void restore(const Snapshot& s) {
+        const Index d = s.mean.size(), D = opts_.expansion_dim;
+        if (d == 0 || s.scale.size() != d || s.W.rows() != D || s.W.cols() != d) {
+            throw std::invalid_argument("snapshot is inconsistent with the configured options.");
+        }
+        const Index k = s.use_sym ? static_cast<Index>(s.champions.size()) : 0;
+        if (s.sym_mean.size() != k || s.sym_scale.size() != k || s.weights.size() != 2 * D + d + k) {
+            throw std::invalid_argument("snapshot symbolic/weight state is inconsistent.");
+        }
+        mean_ = s.mean; scale_ = s.scale; W_ = s.W;
+        champions_ = s.champions; sym_mean_ = s.sym_mean; sym_scale_ = s.sym_scale;
+        best_ = s.best; has_best_ = s.has_best;
+        weights_ = s.weights; intercept_ = s.intercept; bandwidth_ = s.bandwidth;
+        alpha_abs_ = s.alpha_abs; use_sym_ = s.use_sym;
+        symbolic_seconds_ = s.symbolic_seconds; select_seconds_ = s.select_seconds;
+        solve_seconds_ = s.solve_seconds;
+        fitted_ = true;
+    }
+
 private:
     Options opts_;
     Eigen::RowVectorXd mean_, scale_;
