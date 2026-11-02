@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -144,6 +145,62 @@ public:
     }
 
     bool is_fitted() const { return fitted_; }
+
+    // Picklable snapshot of the fitted model (see BlackRubby::Snapshot).
+    py::dict get_state() const {
+        if (!fitted_) throw std::logic_error("fit must be called before get_state.");
+        const auto snap = model_->snapshot();
+        py::dict state;
+        state["version"] = 1;
+        state["mean"] = vec_to_array(Eigen::VectorXd(snap.mean));
+        state["scale"] = vec_to_array(Eigen::VectorXd(snap.scale));
+        state["W"] = mat_to_array(snap.W);
+        py::list champions;
+        for (const auto& genome : snap.champions) champions.append(genome_to_dict(genome));
+        state["champions"] = champions;
+        state["sym_mean"] = vec_to_array(snap.sym_mean);
+        state["sym_scale"] = vec_to_array(snap.sym_scale);
+        state["has_best"] = snap.has_best;
+        if (snap.has_best) state["best"] = genome_to_dict(snap.best); else state["best"] = py::none();
+        state["weights"] = vec_to_array(snap.weights);
+        state["intercept"] = snap.intercept;
+        state["bandwidth"] = snap.bandwidth;
+        state["alpha_abs"] = snap.alpha_abs;
+        state["use_sym"] = snap.use_sym;
+        state["symbolic_seconds"] = snap.symbolic_seconds;
+        state["select_seconds"] = snap.select_seconds;
+        state["solve_seconds"] = snap.solve_seconds;
+        return state;
+    }
+
+    PyBlackRubbyRegressor& set_state(const py::dict& state) {
+        if (py::cast<int>(state["version"]) != 1) throw std::invalid_argument("unsupported state version.");
+        blackrubby::BlackRubby::Snapshot snap;
+        snap.mean = array_to_rowvec(state["mean"]);
+        snap.scale = array_to_rowvec(state["scale"]);
+        snap.W = array_to_mat(state["W"]);
+        for (const auto& item : py::cast<py::list>(state["champions"])) {
+            snap.champions.push_back(dict_to_genome(py::cast<py::dict>(item)));
+        }
+        snap.sym_mean = array_to_vec(state["sym_mean"]);
+        snap.sym_scale = array_to_vec(state["sym_scale"]);
+        snap.has_best = py::cast<bool>(state["has_best"]);
+        if (snap.has_best) snap.best = dict_to_genome(py::cast<py::dict>(state["best"]));
+        snap.weights = array_to_vec(state["weights"]);
+        snap.intercept = py::cast<double>(state["intercept"]);
+        snap.bandwidth = py::cast<double>(state["bandwidth"]);
+        snap.alpha_abs = py::cast<double>(state["alpha_abs"]);
+        snap.use_sym = py::cast<bool>(state["use_sym"]);
+        snap.symbolic_seconds = py::cast<double>(state["symbolic_seconds"]);
+        snap.select_seconds = py::cast<double>(state["select_seconds"]);
+        snap.solve_seconds = py::cast<double>(state["solve_seconds"]);
+        model_->restore(snap);
+        fitted_ = true;
+        n_features_in_ = static_cast<int>(snap.mean.size());
+        fit_seconds_ = 0.0;
+        return *this;
+    }
+
     int n_features_in() const { return fitted_ ? n_features_in_ : 0; }
     double fit_seconds() const { return fit_seconds_; }
     double symbolic_seconds() const { return fitted_ ? model_->symbolic_seconds() : 0.0; }
@@ -173,6 +230,87 @@ private:
     double fit_seconds_ = 0.0;
     bool fitted_ = false;
     std::unique_ptr<blackrubby::BlackRubby> model_;
+
+    static py::array_t<double> vec_to_array(const Eigen::VectorXd& v) {
+        py::array_t<double> out(v.size());
+        std::copy(v.data(), v.data() + v.size(), out.mutable_data());
+        return out;
+    }
+
+    static py::array_t<double> mat_to_array(const Eigen::MatrixXd& m) {
+        py::array_t<double> out({m.rows(), m.cols()});
+        Eigen::Map<RowMajorMatrix> mapped(out.mutable_data(), m.rows(), m.cols());
+        mapped = m;
+        return out;
+    }
+
+    static Eigen::VectorXd array_to_vec(const py::handle& h) {
+        auto a = py::array_t<double, py::array::c_style | py::array::forcecast>::ensure(h);
+        if (!a || a.ndim() != 1) throw std::invalid_argument("state arrays must be 1D float64.");
+        Eigen::VectorXd v(a.shape(0));
+        std::copy(a.data(), a.data() + a.size(), v.data());
+        return v;
+    }
+
+    static Eigen::RowVectorXd array_to_rowvec(const py::handle& h) {
+        auto a = py::array_t<double, py::array::c_style | py::array::forcecast>::ensure(h);
+        if (!a || a.ndim() != 1) throw std::invalid_argument("state arrays must be 1D float64.");
+        Eigen::RowVectorXd v(a.shape(0));
+        std::copy(a.data(), a.data() + a.size(), v.data());
+        return v;
+    }
+
+    static Eigen::MatrixXd array_to_mat(const py::handle& h) {
+        auto a = py::array_t<double, py::array::c_style | py::array::forcecast>::ensure(h);
+        if (!a || a.ndim() != 2) throw std::invalid_argument("state matrix must be 2D float64.");
+        Eigen::Map<const RowMajorMatrix> mapped(a.data(), a.shape(0), a.shape(1));
+        return Eigen::MatrixXd(mapped);
+    }
+
+    static py::dict genome_to_dict(const blackrubby::detail::Genome& genome) {
+        constexpr int cells = blackrubby::detail::kCells;
+        py::array_t<std::int32_t> ops(cells), vars(cells);
+        py::array_t<double> consts(cells);
+        for (int i = 0; i < cells; ++i) {
+            ops.mutable_data()[i] = static_cast<std::int32_t>(genome.cube[i].op);
+            vars.mutable_data()[i] = genome.cube[i].var;
+            consts.mutable_data()[i] = genome.cube[i].c;
+        }
+        py::array_t<std::uint8_t> path(genome.path.size());
+        std::copy(genome.path.begin(), genome.path.end(), path.mutable_data());
+        py::dict out;
+        out["ops"] = ops;
+        out["vars"] = vars;
+        out["consts"] = consts;
+        out["path"] = path;
+        out["a"] = genome.a;
+        out["b"] = genome.b;
+        out["nmse"] = genome.nmse;
+        return out;
+    }
+
+    static blackrubby::detail::Genome dict_to_genome(const py::dict& d) {
+        constexpr int cells = blackrubby::detail::kCells;
+        auto ops = py::array_t<std::int32_t, py::array::c_style | py::array::forcecast>::ensure(d["ops"]);
+        auto vars = py::array_t<std::int32_t, py::array::c_style | py::array::forcecast>::ensure(d["vars"]);
+        auto consts = py::array_t<double, py::array::c_style | py::array::forcecast>::ensure(d["consts"]);
+        auto path = py::array_t<std::uint8_t, py::array::c_style | py::array::forcecast>::ensure(d["path"]);
+        if (!ops || !vars || !consts || !path || ops.size() != cells || vars.size() != cells ||
+            consts.size() != cells) {
+            throw std::invalid_argument("genome state has the wrong shape.");
+        }
+        blackrubby::detail::Genome genome;
+        for (int i = 0; i < cells; ++i) {
+            genome.cube[i].op = static_cast<blackrubby::detail::Op>(ops.data()[i]);
+            genome.cube[i].var = vars.data()[i];
+            genome.cube[i].c = consts.data()[i];
+        }
+        genome.path.assign(path.data(), path.data() + path.size());
+        genome.a = py::cast<double>(d["a"]);
+        genome.b = py::cast<double>(d["b"]);
+        genome.nmse = py::cast<double>(d["nmse"]);
+        return genome;
+    }
 
     static std::tuple<Eigen::MatrixXd, Eigen::Index, Eigen::Index> as_matrix(const py::array& value,
                                                                               const char* name) {
@@ -237,6 +375,10 @@ PYBIND11_MODULE(_core, module) {
         .def("score", &PyBlackRubbyRegressor::score, py::arg("X"), py::arg("y"), "Return the coefficient of determination R^2.")
         .def("get_params", &PyBlackRubbyRegressor::get_params)
         .def("set_params", &PyBlackRubbyRegressor::set_params, py::return_value_policy::reference_internal)
+        .def("get_state", &PyBlackRubbyRegressor::get_state,
+             "Return a picklable dict capturing the fitted model state.")
+        .def("set_state", &PyBlackRubbyRegressor::set_state, py::return_value_policy::reference_internal,
+             py::arg("state"), "Restore a fitted model from a dict produced by get_state().")
         .def_property_readonly("is_fitted_", &PyBlackRubbyRegressor::is_fitted)
         .def_property_readonly("n_features_in_", &PyBlackRubbyRegressor::n_features_in)
         .def_property_readonly("fit_seconds_", &PyBlackRubbyRegressor::fit_seconds)
